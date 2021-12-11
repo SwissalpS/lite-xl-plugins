@@ -60,7 +60,8 @@ command.add("core.docview", {
     if PLATFORM == "Windows" then
       system.exec("start " .. htmlfile)
     else
-      system.exec(string.format("xdg-open %q", htmlfile))
+      --system.exec(string.format("xdg-open %q", htmlfile))
+      system.exec(string.format("chromium-browser --incognito --new-window %q", htmlfile))
     end
 
     core.add_thread(function()
