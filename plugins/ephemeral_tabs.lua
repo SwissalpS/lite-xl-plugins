@@ -1,4 +1,4 @@
--- mod-version:2 -- lite-xl 2.0
+-- mod-version:3
 local core = require "core"
 local command = require "core.command"
 local RootView = require "core.rootview"
@@ -75,4 +75,3 @@ function RootView:on_mouse_released(button, x, y, ...)
   end
   return RootView_on_mouse_released(self, button, x, y, ...)
 end
-
