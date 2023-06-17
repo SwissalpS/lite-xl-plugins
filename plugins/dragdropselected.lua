@@ -9,10 +9,9 @@
   version: 20230616_094245 by SwissalpS
   original: 20200627_133351 by SwissalpS
 
-  TODO: select moved/copied portion after release
-  TODO: use OS drag and drop events
-  TODO: change mouse cursor when duplicating
   TODO: add dragging image
+  TODO: use OS drag and drop events
+  TODO: change mouse cursor when duplicating (requires change in cpp/SDL2)
 --]]
 local core = require "core"
 local common = require "core.common"
@@ -48,17 +47,42 @@ config.plugins.dragdropselected = common.merge({
 -- helper function to determine if mouse is in selection
 -- iLine is line number where mouse is
 -- iCol is column where mouse is
--- iSelLine1 is line number where selection starts
--- iSelCol1 is column where selection starts
--- iSelLine2 is line number where selection ends
--- iSelCol2 is column where selection ends
-local function isInSelection(iLine, iCol, iSelLine1, iSelCol1, iSelLine2, iSelCol2)
-  if iLine < iSelLine1 then return false end
-  if iLine > iSelLine2 then return false end
-  if (iLine == iSelLine1) and (iCol < iSelCol1) then return false end
-  if (iLine == iSelLine2) and (iCol > iSelCol2) then return false end
+-- iLine1 is line number where selection starts
+-- iCol1 is column where selection starts
+-- iLine2 is line number where selection ends
+-- iCol2 is column where selection ends
+-- bDuplicating triggers 'exclusive' check making selection area smaller
+--   iLine1, iCol1, iLine2, iCol2 can also be packed in a table,
+--    in position of iLine1. When this signature is used,
+--    iCol1 carries bDuplicating
+function DocView:dnd_isInSelection(
+    iLine, iCol, iLine1, iCol1, iLine2, iCol2, bDuplicating)
+
+  -- alternate argument signature used?
+  if 'table' == type(iLine1) then
+    bDuplicating = iCol1
+    iLine1, iCol1, iLine2, iCol2 = table.unpack(iLine1)
+  end
+  -- adjust boundries for duplication actions
+  -- this allows users to duplicate selection adjacent to selection
+  if bDuplicating then
+    iCol1 = iCol1 + 1
+    if #self.doc.lines[iLine1] < iCol1 then
+      iCol1 = 1
+      iLine1 = iLine1 + 1
+    end
+    iCol2 = iCol2 - 1
+    if 0 == iCol2 then
+      iLine2 = iLine2 - 1
+      iCol2 = #self.doc.lines[iLine2]
+    end
+  end
+  if iLine < iLine1 then return false end
+  if iLine > iLine2 then return false end
+  if (iLine == iLine1) and (iCol < iCol1) then return false end
+  if (iLine == iLine2) and (iCol > iCol2) then return false end
   return true
-end -- isInSelection
+end -- DocView:dnd_isInSelection
 
 
 local on_mouse_moved = DocView.on_mouse_moved
@@ -110,16 +134,18 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
   -- convert pixel coordinates to line and column coordinates
   local iLine, iCol = self:resolve_screen_position(x, y)
   -- get selection coordinates
-  local iSelLine1, iSelCol1, iSelLine2, iSelCol2 = self.doc:get_selection(true)
-  if not isInSelection(iLine, iCol, iSelLine1, iSelCol1, iSelLine2, iSelCol2)
-  then
+  local iLine1, iCol1, iLine2, iCol2 = self.doc:get_selection(true)
+  if not self:dnd_isInSelection(iLine, iCol, iLine1, iCol1, iLine2, iCol2) then
     -- let 'old' on_mouse_pressed() do whatever it needs to do
     return on_mouse_pressed(self, button, x, y, clicks)
   end
 
   -- stash selection for inserting later
   self.dnd_sText = self.doc:get_text(self.doc:get_selection())
-  self.dnd_lSelection = { iSelLine1, iSelCol1, iSelLine2, iSelCol2 }
+  self.dnd_lSelection = { iLine1, iCol1, iLine2, iCol2 }
+  -- disable blinking caret and stash user setting
+  self.dnd_bBlink = config.disable_blink
+  config.disable_blink = true
 end -- DocView:on_mouse_pressed
 
 
@@ -132,8 +158,10 @@ local function reset(oDocView)
     if not oDocView:is(DocView) then return end
   end
 
+  config.disable_blink = oDocView.dnd_bBlink
   oDocView.dnd_lSelection = nil
   oDocView.dnd_bDragging = nil
+  oDocView.dnd_bBlink = nil
   oDocView.dnd_sText = nil
   oDocView.cursor = 'ibeam'
 end -- reset
@@ -157,47 +185,52 @@ function DocView:on_mouse_released(button, x, y)
   end
 
   local bDuplicating = keymap.modkeys['ctrl']
-  local iSelLine1, iSelCol1, iSelLine2, iSelCol2
-      = table.unpack(self.dnd_lSelection)
-
-  -- adjust boundries for duplication actions
-  -- this allows users to duplicate selection adjacent to selection
-  local iLine1, iCol1, iLine2, iCol2 = iSelLine1, iSelCol1, iSelLine2, iSelCol2
-  if bDuplicating then
-    iCol1 = iCol1 + 1
-    if #self.doc.lines[iLine1] < iCol1 then
-      iCol1 = 1
-      iLine1 = iLine1 + 1
-    end
-    iCol2 = iCol2 - 1
-    if 0 == iCol2 then
-      iLine2 = iLine2 - 1
-      iCol2 = #self.doc.lines[iLine2]
-    end
-  end
-  if isInSelection(iLine, iCol, iLine1, iCol1, iLine2, iCol2) then
+  local iLine1, iCol1, iLine2, iCol2 = table.unpack(self.dnd_lSelection)
+  if self:dnd_isInSelection(
+      iLine, iCol, iLine1, iCol1, iLine2, iCol2, bDuplicating)
+  then
     -- drag abborted or initiated drag without holding mouse button (sticky)
-      self.doc:set_selection(iLine, iCol)
+    self.doc:set_selection(iLine, iCol)
   else
     -- insert stashed selected text at current position
-    if iLine < iSelLine1 or (iLine == iSelLine1 and iCol < iSelCol1) then
+    if iLine < iLine1 or (iLine == iLine1 and iCol < iCol1) then
       -- delete first
-      self.doc:set_selection(iSelLine1, iSelCol1, iSelLine2, iSelCol2)
       if not bDuplicating then
-          self.doc:delete_to(0)
+        self.doc:set_selection(iLine1, iCol1, iLine2, iCol2)
+        self.doc:delete_to(0)
       end
       self.doc:set_selection(iLine, iCol)
       self.doc:text_input(self.dnd_sText)
+      -- select inserted text
+      if iLine1 == iLine2 then
+        self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1)
+      else
+        self.doc:set_selection(iLine, iCol, iLine + iLine2 - iLine1, iCol2)
+      end
     else
       -- insert first
       self.doc:set_selection(iLine, iCol)
       self.doc:text_input(self.dnd_sText)
-      self.doc:set_selection(iSelLine1, iSelCol1, iSelLine2, iSelCol2)
       if not bDuplicating then
-          self.doc:delete_to(0)
+        self.doc:set_selection(iLine1, iCol1, iLine2, iCol2)
+        self.doc:delete_to(0)
       end
-      -- TODO: select inserted text
-      self.doc:set_selection(iLine, iCol)
+      -- select inserted text
+      if iLine1 == iLine2 then
+        if iLine == iLine1 then
+          if not bDuplicating then
+            iCol = iCol - iCol2 + iCol1
+          end
+          self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1)
+        else
+          self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1)
+        end
+      else
+        if not bDuplicating then
+          iLine = iLine - iLine2 + iLine1
+        end
+        self.doc:set_selection(iLine, iCol, iLine + iLine2 - iLine1, iCol2)
+      end
     end
   end
   -- unset stashes and flag
@@ -211,7 +244,7 @@ function DocView:draw_caret(x, y)
   if self.dnd_sText and config.plugins.dragdropselected.enabled then
     local iLine, iCol = self:resolve_screen_position(x, y)
     -- don't show carets inside selections
-    if isInSelection(iLine, iCol, table.unpack(self.dnd_lSelection)) then
+    if self:dnd_isInSelection(iLine, iCol, self.dnd_lSelection, true) then
       return
     end
   end
