@@ -134,7 +134,7 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
   -- convert pixel coordinates to line and column coordinates
   local iLine, iCol = self:resolve_screen_position(x, y)
   -- get selection coordinates
-  local iLine1, iCol1, iLine2, iCol2 = self.doc:get_selection(true)
+  local iLine1, iCol1, iLine2, iCol2, bSwapped = self.doc:get_selection(true)
   if not self:dnd_isInSelection(iLine, iCol, iLine1, iCol1, iLine2, iCol2) then
     -- let 'old' on_mouse_pressed() do whatever it needs to do
     return on_mouse_pressed(self, button, x, y, clicks)
@@ -142,7 +142,7 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
 
   -- stash selection for inserting later
   self.dnd_sText = self.doc:get_text(self.doc:get_selection())
-  self.dnd_lSelection = { iLine1, iCol1, iLine2, iCol2 }
+  self.dnd_lSelection = { iLine1, iCol1, iLine2, iCol2, bSwapped }
   -- disable blinking caret and stash user setting
   self.dnd_bBlink = config.disable_blink
   config.disable_blink = true
@@ -158,7 +158,7 @@ local function reset(oDocView)
     if not oDocView:is(DocView) then return end
   end
 
-  config.disable_blink = oDocView.dnd_bBlink
+  config.disable_blink = oDocView.dnd_bBlink or config.disable_blink
   oDocView.dnd_lSelection = nil
   oDocView.dnd_bDragging = nil
   oDocView.dnd_bBlink = nil
@@ -185,7 +185,7 @@ function DocView:on_mouse_released(button, x, y)
   end
 
   local bDuplicating = keymap.modkeys['ctrl']
-  local iLine1, iCol1, iLine2, iCol2 = table.unpack(self.dnd_lSelection)
+  local iLine1, iCol1, iLine2, iCol2, bSwapped = table.unpack(self.dnd_lSelection)
   if self:dnd_isInSelection(
       iLine, iCol, iLine1, iCol1, iLine2, iCol2, bDuplicating)
   then
@@ -196,23 +196,23 @@ function DocView:on_mouse_released(button, x, y)
     if iLine < iLine1 or (iLine == iLine1 and iCol < iCol1) then
       -- delete first
       if not bDuplicating then
-        self.doc:set_selection(iLine1, iCol1, iLine2, iCol2)
+        self.doc:set_selection(iLine1, iCol1, iLine2, iCol2, bSwapped)
         self.doc:delete_to(0)
       end
       self.doc:set_selection(iLine, iCol)
       self.doc:text_input(self.dnd_sText)
       -- select inserted text
       if iLine1 == iLine2 then
-        self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1)
+        self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1, bSwapped)
       else
-        self.doc:set_selection(iLine, iCol, iLine + iLine2 - iLine1, iCol2)
+        self.doc:set_selection(iLine, iCol, iLine + iLine2 - iLine1, iCol2, bSwapped)
       end
     else
       -- insert first
       self.doc:set_selection(iLine, iCol)
       self.doc:text_input(self.dnd_sText)
       if not bDuplicating then
-        self.doc:set_selection(iLine1, iCol1, iLine2, iCol2)
+        self.doc:set_selection(iLine1, iCol1, iLine2, iCol2, bSwapped)
         self.doc:delete_to(0)
       end
       -- select inserted text
@@ -221,15 +221,15 @@ function DocView:on_mouse_released(button, x, y)
           if not bDuplicating then
             iCol = iCol - iCol2 + iCol1
           end
-          self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1)
+          self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1, bSwapped)
         else
-          self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1)
+          self.doc:set_selection(iLine, iCol, iLine, iCol + iCol2 - iCol1, bSwapped)
         end
       else
         if not bDuplicating then
           iLine = iLine - iLine2 + iLine1
         end
-        self.doc:set_selection(iLine, iCol, iLine + iLine2 - iLine1, iCol2)
+        self.doc:set_selection(iLine, iCol, iLine + iLine2 - iLine1, iCol2, bSwapped)
       end
     end
   end
