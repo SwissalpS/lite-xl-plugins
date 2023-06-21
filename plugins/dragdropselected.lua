@@ -274,6 +274,19 @@ function DocView:on_mouse_released(button, x, y)
     end
     -- get new location of inserted text
     iLine, iCol = self.doc:get_selection_idx(self.doc.last_selection, true)
+print '/////////////////////////////'
+for _, iL1, iC1, iL2, iC2 in self.doc:get_selections(true) do
+  print(iL1, iC1, iL2, iC2)
+end
+print '-------------------------'
+--[[
+self.doc:remove_selection(self.doc.last_selection)
+for _, iL1, iC1, iL2, iC2 in self.doc:get_selections(true) do
+  print(iL1, iC1, iL2, iC2)
+end
+print '++++++++++++++++++++++++++'
+--]]
+    -- figure out end of inserted text
     local iLine2, iCol2 = iLine + iAdditionalLines
     if iLine == iLine2 then
       iCol2 = iCol + iLastLength
@@ -282,6 +295,10 @@ function DocView:on_mouse_released(button, x, y)
     end
     -- finally select inserted text
     self.doc:set_selection(iLine, iCol, iLine2, iCol2)
+for _, iL1, iC1, iL2, iC2 in self.doc:get_selections(true) do
+  print(iL1, iC1, iL2, iC2)
+end
+print '****************************'
   end
   -- unset stashes and flag
   dnd.reset(self)
