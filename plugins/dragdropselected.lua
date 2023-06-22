@@ -161,6 +161,7 @@ end -- DocView:dnd_setSelections
 -- helper for on_mouse_released and
 -- when escape is pressed during drag (or not, not worth checking)
 function dnd.reset(oDocView)
+  print('reset')
   if not oDocView then
     oDocView = core.active_view
     if not oDocView:is(DocView) then return end
@@ -259,6 +260,12 @@ function DocView:on_mouse_released(button, x, y)
   local bDuplicating = keymap.modkeys['ctrl']
   if self:dnd_isInSelections(iLine, iCol, bDuplicating) then
     self.doc:remove_selection(self.doc.last_selection)
+
+print '1/////////////////////////////'
+for _, iL1, iC1, iL2, iC2, nn in self.doc:get_selections() do
+  print(iL1, iC1, iL2, iC2, (nn or '<>'))
+end
+print '1-------------------------'
   else
     -- do some calculations for selecting inserted text
     local iAdditionalLines, sLast = -1, ''
