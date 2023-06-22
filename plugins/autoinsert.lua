@@ -15,6 +15,8 @@ config.plugins.autoinsert = common.merge({ map = {
   ['"'] = '"',
   ["'"] = "'",
   ["`"] = "`",
+  ["¡"] = "!",
+  ["¿"] = "?"
 } }, config.plugins.autoinsert)
 
 
