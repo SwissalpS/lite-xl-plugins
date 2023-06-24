@@ -19,6 +19,7 @@ local common = require "core.common"
 local config = require "core.config"
 local DocView = require "core.docview"
 local keymap = require "core.keymap"
+local command = require "core.command"
 
 local dnd = {}
 
@@ -105,9 +106,19 @@ end -- dnd.getSelectedText
 -- checks whether given coordinates are in a selection
 -- iLine, iCol are position of mouse
 -- bDuplicating triggers 'exclusive' check making checked area smaller
-function DocView:dnd_isInSelections(iLine, iCol, bDuplicating)
+function DocView:dnd_isInSelections(iX, iY, bDuplicating)
   self.dnd_lSelections = self.dnd_lSelections or self:dnd_collectSelections()
   if not self.dnd_lSelections then return nil end
+
+  local iLine, iCol = self:resolve_screen_position(iX, iY)
+  if config.plugins.dragdropselected.useSticky and not self.dnd_bDragging then
+    -- allow user to clear selection in sticky mode by clicking in empty area
+    -- to the right of selection
+    local iX2 = self:get_line_screen_position(iLine, #self.doc.lines[iLine])
+    -- this does not exactly corespond with the graphical selected area
+    -- it means selection can't be grabbed by the "\n" at the end
+    if iX2 < iX then return nil end
+  end
 
   local iLine1, iCol1, iLine2, iCol2, bSwap
   local i = #self.dnd_lSelections
@@ -203,6 +214,7 @@ function DocView:on_mouse_moved(x, y, ...)
   self.doc:add_selection(iLine, iCol)
   -- update scroll position, if needed
   self:scroll_to_line(iLine, true)
+  return true
 end -- DocView:on_mouse_moved
 
 
@@ -224,7 +236,7 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
   if not config.plugins.dragdropselected.enabled
     or 'left' ~= button
     or 1 < clicks
-    or not self:dnd_isInSelections(self:resolve_screen_position(x, y))
+    or not self:dnd_isInSelections(x, y)
   then
     dnd.reset(self)
     -- let 'old' on_mouse_pressed() do whatever it needs to do
@@ -236,6 +248,7 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
   -- disable blinking caret and stash user setting
   self.dnd_bBlink = config.disable_blink
   config.disable_blink = true
+  return true
 end -- DocView:on_mouse_pressed
 
 
@@ -257,8 +270,8 @@ function DocView:on_mouse_released(button, x, y)
   end
 
   local bDuplicating = keymap.modkeys['ctrl']
-  if self:dnd_isInSelections(iLine, iCol, bDuplicating) then
-    -- drag abborted by releasing mouse inside selection
+  if self:dnd_isInSelections(x, y, bDuplicating) then
+    -- drag aborted by releasing mouse inside selection
     self.doc:remove_selection(self.doc.last_selection)
   else
     -- do some calculations for selecting inserted text
@@ -295,24 +308,48 @@ end -- DocView:on_mouse_released
 local draw_caret = DocView.draw_caret
 function DocView:draw_caret(x, y)
   if self.dnd_sText and config.plugins.dragdropselected.enabled then
-    local iLine, iCol = self:resolve_screen_position(x, y)
     -- don't show carets inside selections
-    if self:dnd_isInSelections(iLine, iCol, true) then
+    if self:dnd_isInSelections(x, y, true) then
       return
     end
   end
-  draw_caret(self, x, y)
+  return draw_caret(self, x, y)
 end -- DocView:draw_caret()
 
 
--- catch escape-key presses
-local on_key_released = keymap.on_key_released
-function keymap.on_key_released(k)
-  if config.plugins.dragdropselected.enabled and 'escape' == k then
-    dnd.reset()
+-- disable text_input during drag operations
+local on_text_input = DocView.on_text_input
+function DocView:on_text_input(text)
+  if self.dnd_bDragging then
+    return true
   end
-  return on_key_released(k)
-end
+  return on_text_input(self, text)
+end -- DocView:on_text_input
+
+
+function dnd.abort(oDocView)
+  if not config.plugins.dragdropselected.enabled then return end
+
+  if oDocView.dnd_bDragging then
+    -- ensure there are no stray markers by re-selecting
+    oDocView:dnd_setSelections()
+  end
+  dnd.reset(oDocView)
+end -- dnd.abort
+
+
+function dnd.predicate()
+  if not config.plugins.dragdropselected.enabled
+    or not core.active_view:is(DocView)
+    or not core.active_view.dnd_bDragging
+  then return false end
+
+  return true, core.active_view
+end -- dnd.predicate
+
+
+command.add(dnd.predicate, { ['dragdropselected:abort'] = dnd.abort })
+keymap.add({ ['escape'] = 'dragdropselected:abort' })
 
 
 return dnd
