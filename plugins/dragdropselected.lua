@@ -8,6 +8,9 @@
   - press escape to abort
   - supports multiple selections
   version: 20230616_094245 by SwissalpS
+  thanks to: github.com/Guldoman for his valuable inputs while I was re-writing
+             this plugin for lite-xl. The plugin turned out a lot better and
+             thus the backport for lite also turned out better.
   original: 20200627_133351 by SwissalpS
 
   TODO: add dragging image
@@ -121,10 +124,10 @@ function DocView:dnd_isInSelections(iX, iY, bDuplicating)
     if iX2 < iX then return nil end
   end
 
-  local iLine1, iCol1, iLine2, iCol2, bSwap
+  local iLine1, iCol1, iLine2, iCol2
   local i = #self.dnd_lSelections
   repeat
-    iLine1, iCol1, iLine2, iCol2, bSwap = table.unpack(self.dnd_lSelections[i])
+    iLine1, iCol1, iLine2, iCol2 = table.unpack(self.dnd_lSelections[i])
     if bDuplicating then
       -- adjust boundries for duplication actions
       -- this allows users to duplicate selection adjacent to selection
@@ -192,7 +195,6 @@ end -- dnd.reset
 local on_mouse_moved = DocView.on_mouse_moved
 function DocView:on_mouse_moved(x, y, ...)
   if not config.plugins.dragdropselected.enabled or not self.dnd_sText then
-    -- there is nothing to do -> hand off to original on_mouse_moved()
     return on_mouse_moved(self, x, y, ...)
   end
 
@@ -240,7 +242,6 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
     or not self:dnd_isInSelections(x, y)
   then
     dnd.reset(self)
-    -- let 'old' on_mouse_pressed() do whatever it needs to do
     return on_mouse_pressed(self, button, x, y, clicks)
   end
 
@@ -255,7 +256,8 @@ end -- DocView:on_mouse_pressed
 
 local on_mouse_released = DocView.on_mouse_released
 function DocView:on_mouse_released(button, x, y)
-  -- nothing to do if: not enabled or never clicked into selection
+  -- nothing to do if: not enabled,
+  -- never clicked into selection or not left button
   if not config.plugins.dragdropselected.enabled
     or 'left' ~= button
     or not self.dnd_sText
@@ -278,13 +280,6 @@ function DocView:on_mouse_released(button, x, y)
     -- drag aborted by releasing mouse inside selection
     self.doc:remove_selection(self.doc.last_selection)
   else
-    -- do some calculations for selecting inserted text
-    local iAdditionalLines, sLast = -1, ''
-    for s in (self.dnd_sText .. "\n"):gmatch("(.-)\n") do
-      iAdditionalLines = iAdditionalLines + 1
-      sLast = s
-    end
-    local iLastLength = #sLast
     -- have doc handle selection updates
     self.doc:insert(iLine, iCol, self.dnd_sText)
     -- add a marker so we know where to start selecting pasted text
@@ -294,14 +289,9 @@ function DocView:on_mouse_released(button, x, y)
     end
     -- get new location of inserted text
     iLine, iCol = self.doc:get_selection_idx(self.doc.last_selection, true)
-    local iLine2, iCol2 = iLine + iAdditionalLines
-    if iLine == iLine2 then
-      iCol2 = iCol + iLastLength
-    else
-      iCol2 = iLastLength + 1
-    end
     -- finally select inserted text
-    self.doc:set_selection(iLine, iCol, iLine2, iCol2)
+    self.doc:set_selection(
+        iLine, iCol, self.doc:position_offset(iLine, iCol, #self.dnd_sText))
   end
   -- unset stashes and flag
   dnd.reset(self)
