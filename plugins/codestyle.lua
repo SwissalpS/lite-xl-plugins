@@ -12,10 +12,13 @@
 --]]
 
 local cs = {}
+
+local core = require "core"
 local command = require "core.command"
 local common = require "core.common"
 local config = require "core.config"
 local DocView = require "core.docview"
+local style = require "core.style"
 local syntax = require "core.syntax"
 
 config.plugins.codestyle = common.merge({
@@ -205,14 +208,27 @@ function DocView:draw_line_text(line, x, y)
   return lh
 end -- DocView:draw_line_text
 
+function cs.showStatus(s)
+  if not core.status_view then return end
+
+  local tS = style.log['INFO']
+  core.status_view:show_message(tS.icon, tS.color, s)
+end -- cs.showStatus
+
 
 function cs.toggleEnabled()
 	config.plugins.codestyle.enabled = not config.plugins.codestyle.enabled
-end
+
+  cs.showStatus("Code style hints are "
+    .. (config.plugins.codestyle.enabled and 'en' or 'dis')
+    .. 'abled')
+end -- cs.toggleEnabled
+
 
 command.add(nil, {
-  ['codestyle:toggle-enabled'] = cs.toggleEnabled
+  ['code-style:toggle-enabled'] = cs.toggleEnabled
 })
+
 
 return cs
 
