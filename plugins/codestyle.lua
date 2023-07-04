@@ -136,14 +136,15 @@ end -- cs.exceptionsDashNoWSbefore
 cs.lPatterns = {
   { p = '%S%-', e = cs.exceptionsDashNoWSbefore },
   { p = '%-%S', e = cs.exceptionsDashNoWSafter },
-  { p = '%S[#~%+/|*%%^]' },
+  { p = '%S[~%+/|*%%^]' },
   { p = '[%+/|*%%^,]%S' },
   { p = '[^~<>=%s]=' },
   { p = '=[^=%s]' },
   { p = '[^%s][<>]' },
   { p = '[<>][^=%s]' },
   { p = '{[^}%s]' },
-  { p = '[^{%s]}' }
+  { p = '[^{%s]}' },
+  { p = '[^%s%[%(]#' }
 }
 
 
