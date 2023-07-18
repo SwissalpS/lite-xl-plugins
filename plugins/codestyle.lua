@@ -2,7 +2,7 @@
 --[[
   codestyle.lua
   provides very basic single-line codestyle checks
-  version: 20230703.145743 by SwissalpS
+  version: 20230718.2356 by SwissalpS
   license: MIT
   known limitations:
     - Does not detect URIs in comments or quoted strings in comments.
@@ -169,9 +169,11 @@ function DocView:draw_line_text(line, x, y)
   local lh = draw_line_text(self, line, x, y)
 
   -- don't act on non-doc DocViews or when disabled or when not lua-file
+  -- or when line is insanely long
   if not self.doc.filename
     or not config.plugins.codestyle.enabled
     or not cs.isLua(self.doc)
+    or 180 < #self.doc.lines[line]
   then
     return lh
   end
