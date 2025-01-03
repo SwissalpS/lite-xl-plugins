@@ -1,4 +1,4 @@
--- mod-version:2 -- lite-xl 2.0
+-- mod-version:3 -- lite-xl 2.0
 local core = require "core"
 local keymap = require "core.keymap"
 local command = require "core.command"
@@ -118,7 +118,7 @@ function console.run(opt)
         push_output("\n", opt)
       end
       push_output("!DIVIDER\n", opt)
-  
+
       opt.on_complete(proc:returncode())
     else
       core.error("Error while executing command: %q", err)
@@ -370,3 +370,4 @@ package.loaded["plugins.console.view"] = ConsoleView
 
 console.clear()
 return console
+

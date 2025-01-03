@@ -1,4 +1,4 @@
--- mod-version:2 -- lite-xl 2.0
+-- mod-version:3 -- lite-xl 2.0
 -- based on the ruby plugin, see https://github.com/Tamnac/lite-xl-plugins to contribute
 local syntax = require "core.syntax"
 
