@@ -17,21 +17,21 @@
   license: MIT
 --]]
 local core = require "core"
-local config = require "core.config"
-local DocView = require "core.docview"
-local Doc = require "core.doc"
-local common = require "core.common"
 local command = require "core.command"
-local style = require "core.style"
+local common = require "core.common"
+local config = require "core.config"
+local Doc = require "core.doc"
+local DocView = require "core.docview"
 local gitdiff = require "plugins.gitdiffhighlightstatus.gitdiff"
+local style = require "core.style"
 
--- The main object containing exposed functions and such.
----@type table
-local g = {}
+local lDump = require('plugins.dump')local d, pd = table.unpack(lDump)
+local system, process, PATHSEP, PLATFORM = system, process, PATHSEP, PLATFORM
 
 config.plugins.gitdiffhighlightstatus = common.merge({
   use_status = true,
   use_treeview = false,
+  stop_at_base = true,
   -- The config specification used by the settings gui
   config_spec = {
     name = "Git Diff Highlight and Status",
@@ -50,13 +50,19 @@ config.plugins.gitdiffhighlightstatus = common.merge({
       path = "use_treeview",
       type = "toggle",
       default = false
+    },
+    {
+      label = "Stop Colouring Parent Items at Repository Base",
+      description = "You may not want this if you also use [gitstatus].",
+      path = "stop_at_base",
+      type = "toggle",
+      default = true
     }
   }
 }, config.plugins.gitdiffhighlightstatus)
 
--- maximum size of git diff to read, multiplied by current filesize
+-- maximum size of git diff to read, multiplied by filesize
 config.plugins.gitdiffhighlightstatus.max_diff_size = 2
-
 
 -- vscode defaults
 style.gitdiff_addition = style.gitdiff_addition or { common.color "#587c0c" }
@@ -65,18 +71,71 @@ style.gitdiff_deletion = style.gitdiff_deletion or { common.color "#94151b" }
 
 style.gitdiff_width = style.gitdiff_width or 3
 
+-- The main object containing exposed functions and such.
+---@type { [string]: function | any }
+local g = {}
+
+-- Table containing async functions.
+---@type { [string]: function }
+g.a = {}
+
+-- Table containing deferred functions.
+---@type { [string]: function }
+g.d = {}
 
 -- Holds alternative item colours for when TreeView is being used.
 -- { [path] = colour }
----@type table <string, table>
+---@type { [string]: integer[] }
 g.cached_color_for_item = {}
 
 -- Holds diff information per Doc.
 -- Since Doc objects are used as keys, this table is marked to have weak keys.
 -- { [Doc] = { [integer] = "addition" | "modification" | "deletion" } }
 -- The info table also contains the fields "is_in_repo", "inserts", "deletes"
----@type table<Doc, table>
+---@type { [Doc]: table }
 g.diffs = setmetatable({}, { __mode = "k" })
+
+
+-- Array holding information on found repositories.
+---@type { [string]: { [string]: any } }[]
+g.repos = {}
+
+-- Dictionary index lookup for found repositories.
+---@type { [string]: integer }
+g.repos_index = {}
+
+-- Add a repo to cache
+---@param path string The absolute base path to repository.
+---@return integer index
+function g.add_repo(path)
+  if g.repos_index[path] then return g.repos_index[path] end
+
+  local index = #g.repos + 1
+  g.repos[index] = {
+    deletions = 0,
+    insertions = 0,
+    path = path,
+    updated = 0,
+  }
+  g.repos_index[path] = index
+  return index
+end -- g.add_repo
+
+
+-- Get repo of given base path or index or nil if invalid.
+---@param index_or_path integer | string
+---@return { [string]: { [string]: any  }}
+---@return nil
+function g.get_repo(index_or_path)
+	if 'string' == type(index_or_path) then
+    return g.repos_index[index_or_path] and
+        g.repos[g.repos_index[index_or_path]] or nil
+
+  elseif 'number' == type(index_or_path) then
+    return g.repos[index_or_path]
+  end
+  return nil
+end -- g.get_repo
 
 
 -- Return colour for diff type
@@ -119,13 +178,14 @@ end
 ---@param yield? number 0 to math.huge, defaults to 0.1
 ---@return string
 ---@return number | nil
-function g.exec(cmd, max_len, yield)
+---@async
+function g.a.exec(cmd, max_len, yield)
   local proc = process.start(cmd)
   while proc:running() do
     coroutine.yield(yield or .1)
   end
   return proc:read_stdout(max_len) or "", proc:returncode()
-end -- g.exec
+end -- g.a.exec
 
 
 -- Update diff info for given Doc.
@@ -133,20 +193,17 @@ end -- g.exec
 -- Aborts if a file is not added to a repo.
 -- Must be called from within core.add_thread().
 ---@param doc Doc
-function g.update_diff(doc)
-  if not doc or not doc.filename then return end
+---@async
+function g.a.update_diff(doc)
+  if not doc or not doc.abs_filename then return end
 
-  local full_path = system.absolute_path(doc.filename)
-  if not full_path then
-    return
-  end
-
+  local full_path = doc.abs_filename
   core.log_quiet("[gitdiffhighlightstatus] updating diff for " .. full_path)
 
   local path = full_path:match("(.*" .. PATHSEP .. ")")
 
   if not g.get_diff(doc).is_in_repo then
-    local _, exit_code = g.exec({
+    local _, exit_code = g.a.exec({
       "git", "-C", path, "ls-files", "--error-unmatch", full_path
     })
     if 0 ~= exit_code then
@@ -157,35 +214,43 @@ function g.update_diff(doc)
     end
   end
 
+  -- get repo's base path
+  local path_base = g.a.exec({
+    "git", "-C", path, "rev-parse", "--show-toplevel"
+  }):match("[^\n]*")
+
   -- get diff
   local max_size = system.get_file_info(doc.filename).size
   max_size = max_size * config.plugins.gitdiffhighlightstatus.max_diff_size
-  local diff_string = g.exec({
-    "git", "-C", path, "diff", "HEAD", "--word-diff",
+  local diff_string = g.a.exec({
+    "git", "-C", path_base, "diff", "HEAD", "--word-diff",
     "--unified=1", "--no-color", full_path
   }, max_size)
   g.diffs[doc] = gitdiff.changed_lines(diff_string)
 
   -- get branch name
-  local branch = g.exec({
-    "git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD"
+  local branch = g.a.exec({
+    "git", "-C", path_base, "rev-parse", "--abbrev-ref", "HEAD"
   }) or ""
   g.diffs[doc].branch = branch:match("[^\n]*")
 
   -- get insert/delete statistics
   local inserts, deletes = 0, 0
-  local numstat = g.exec({
-    "git", "-C", path, "diff", "--numstat"
+  local numstat = g.a.exec({
+    "git", "-C", path_base, "diff", "--numstat"
   })
+--pd({branch=branch,file=doc.filename,full_path=full_path,path=path, path_base=path_base, numstat=numstat})
   local ins, dels, p, abs_path
   for line in string.gmatch(numstat, "[^\n]+") do
     ins, dels, p = line:match("(%d+)%s+(%d+)%s+(.+)")
-    -- not a 100% fool-proof check if this stat is about this file,
-    -- should be good enough though - for now
-    if p and full_path:match(p .. "$") then
+    -- check if this stat is about this file
+--pd({p=p or '<nil>'})
+    if p and full_path == path_base .. PATHSEP .. p then
       inserts = inserts + (tonumber(ins) or 0)
       deletes = deletes + (tonumber(dels) or 0)
-      if 0 == inserts and 0 == deletes then
+      if 0 == inserts + deletes then
+        -- this is unlikely to ever happen, since git numstat
+        -- only lists changes
         g.cached_color_for_item[full_path] = nil
         -- since this plugin avoids scanning entire trees,
         -- we can't reliably check if we can clear treeview colours for
@@ -198,7 +263,11 @@ function g.update_diff(doc)
         abs_path = full_path
         -- Color this file, and each parent folder. Too simple to not do it.
         while abs_path do
+--pd(abs_path)
           g.cached_color_for_item[abs_path] = style.gitdiff_modification
+          if config.plugins.gitdiffhighlightstatus.stop_at_base
+            and abs_path == path_base then break end
+
           abs_path = common.dirname(abs_path)
         end
       end
@@ -207,7 +276,7 @@ function g.update_diff(doc)
   g.diffs[doc].inserts = inserts
   g.diffs[doc].deletes = deletes
   g.diffs[doc].is_in_repo = true
-end -- g.update_diff
+end -- g.a.update_diff
 
 
 ------------- OVERRIDES -------------
@@ -262,6 +331,9 @@ function g.on_text_change(doc)
   doc.gitdiffhighlightstatus_last_doc_lines = #doc.lines
   return doc_on_text_change(doc, type)
 end
+-- Fired when text in document has changed
+---@param type string
+---@return nothing
 function Doc:on_text_change(type)
   if not g.get_diff(self).is_in_repo then return g.on_text_change(self) end
 
@@ -287,7 +359,7 @@ end -- Doc:on_text_change
 local doc_save = Doc.save
 function Doc:save(...)
   doc_save(self, ...)
-  core.add_thread(g.update_diff, nil, self)
+  core.add_thread(g.a.update_diff, nil, self)
 end -- Doc.save
 
 
@@ -295,7 +367,7 @@ local doc_load = Doc.load
 function Doc:load(...)
   doc_load(self, ...)
   self.gitdiffhighlightstatus_last_doc_lines = #self.lines
-  core.add_thread(g.update_diff, nil, self)
+  core.add_thread(g.a.update_diff, nil, self)
 end
 
 
@@ -304,7 +376,7 @@ end
 
 
 -- add status bar info after all plugins have loaded
-function g.deferred_status()
+function g.d.status()
   if not config.plugins.gitdiffhighlightstatus.use_status
     or not core.status_view
   then return end
@@ -333,11 +405,11 @@ function g.deferred_status()
     separator = core.status_view.separator2
   })
 end
-core.add_thread(g.deferred_status)
+core.add_thread(g.d.status)
 
 
 -- add treeview info after all plugins have loaded
-function g.deferred_treeview()
+function g.d.treeview()
   if not config.plugins.gitdiffhighlightstatus.use_treeview
     or false == config.plugins.treeview
   then return end
@@ -355,11 +427,11 @@ function g.deferred_treeview()
     return text, font, color
   end
 end
-core.add_thread(g.deferred_treeview)
+core.add_thread(g.d.treeview)
 
 
 -- add minimap support only after all plugins are loaded
-function g.deferred_minimap()
+function g.d.minimap()
   -- don't load minimap if user has disabled it
   if false == config.plugins.minimap then return end
 
@@ -377,7 +449,7 @@ function g.deferred_minimap()
     return minimap_line_highlight_color(line)
   end
 end
-core.add_thread(g.deferred_minimap)
+core.add_thread(g.d.minimap)
 
 
 ------------- COMMANDS -------------

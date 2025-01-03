@@ -6,6 +6,8 @@ local style = require "core.style"
 local StatusView = require "core.statusview"
 local TreeView = require "plugins.treeview"
 
+local system, process, PATHSEP, PLATFORM = system, process, PATHSEP, PLATFORM
+
 config.plugins.gitstatus = common.merge({
   recurse_submodules = true,
   -- The config specification used by the settings gui
@@ -21,9 +23,9 @@ config.plugins.gitstatus = common.merge({
   }
 }, config.plugins.gitstatus)
 
-style.gitstatus_addition = {common.color "#587c0c"}
-style.gitstatus_modification = {common.color "#0c7d9d"}
-style.gitstatus_deletion = {common.color "#94151b"}
+style.gitstatus_addition = { common.color "#587c0c" }
+style.gitstatus_modification = { common.color "#0c7d9d" }
+style.gitstatus_deletion = { common.color "#94151b" }
 
 local scan_rate = config.project_scan_rate or 5
 local cached_color_for_item = {}
@@ -63,19 +65,19 @@ core.add_thread(function()
   while true do
     if system.get_file_info(".git") then
       -- get branch name
-      git.branch = exec({"git", "rev-parse", "--abbrev-ref", "HEAD"}):match("[^\n]*")
+      git.branch = exec({ "git", "rev-parse", "--abbrev-ref", "HEAD" }):match("[^\n]*")
 
       local inserts = 0
       local deletes = 0
 
       -- get diff
-      local diff = exec({"git", "diff", "--numstat"})
+      local diff = exec({ "git", "diff", "--numstat" })
       if
         config.plugins.gitstatus.recurse_submodules
         and
         system.get_file_info(".gitmodules")
       then
-        local diff2 = exec({"git", "submodule", "foreach", "git diff --numstat"})
+        local diff2 = exec({ "git", "submodule", "foreach", "git diff --numstat" })
         diff = diff .. diff2
       end
 
@@ -136,3 +138,4 @@ core.status_view:add_item({
   tooltip = "branch and changes",
   separator = core.status_view.separator2
 })
+
