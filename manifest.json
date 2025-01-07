@@ -1793,7 +1793,7 @@
       "tags": [
         "language server protocol"
       ],
-      "version": "0.8"
+      "version": "0.9"
     },
     {
       "description": "Completion menu kind/type icons for Lite XL LSP",
