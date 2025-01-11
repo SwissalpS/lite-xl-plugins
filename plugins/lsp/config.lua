@@ -745,7 +745,7 @@ lspconfig.sqlls = add_lsp {
 lspconfig.sumneko_lua = add_lsp {
   name = "lua-language-server",
   language = "lua",
-  file_patterns = { "%.lua$" },
+  file_patterns = { "%.lua$", ".luacheckrc" },
   command = { 'lua-language-server' },
   verbose = false,
   settings = {
@@ -865,7 +865,7 @@ lspconfig.tsserver = add_lsp {
   verbose = false
 }
 
----# typst-lsp 
+---# typst-lsp
 --- __Status: Works
 --- __Site__: https://github.com/nvarner/typst-lsp
 --- __Instalation__: `yay typst-lsp-bin`

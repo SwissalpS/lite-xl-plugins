@@ -1793,7 +1793,7 @@
       "tags": [
         "language server protocol"
       ],
-      "version": "0.9"
+      "version": "0.10"
     },
     {
       "description": "Completion menu kind/type icons for Lite XL LSP",
@@ -2488,3 +2488,4 @@
     "https://github.com/lite-xl/lite-xl-ide:latest"
   ]
 }
+
